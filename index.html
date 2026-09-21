@@ -140,7 +140,7 @@
 
           const currentClass = classes.find(c => c.id === currentClassId);
 
-          return { classes, currentClass, currentClassId, setCurrentClassId, addClass, deleteClass, addStudent, removeStudent };
+          return { classes, currentClass, currentClassId, setCurrentClassId, nextColorIndex, addClass, deleteClass, addStudent, removeStudent };
         };
 
         // Group generation hook
@@ -621,10 +621,11 @@
           const [showHistory, setShowHistory] = useState(false);
           const [notification, setNotification] = useState('');
 
-          const { classes, currentClass, currentClassId, setCurrentClassId, addClass, deleteClass, addStudent, removeStudent } = useClassData();
+          const { classes, currentClass, currentClassId, setCurrentClassId, nextColorIndex, addClass, deleteClass, addStudent, removeStudent } = useClassData();
           const { smartGenerate, scoreFreshness } = useGroupGeneration(currentClass?.students, history);
           const { handleDragStart, handleDrop } = useDragAndDrop(groups, setGroups);
           const { getItem, setItem } = useStorage();
+          const fileInputRef = useRef(null);
 
           useEffect(() => {
             if (currentClassId) {
@@ -661,6 +662,67 @@
             setTimeout(() => setNotification(''), 2000);
           };
 
+          const exportBackup = async () => {
+            const historyByClass = {};
+            for (const cls of classes) {
+              const h = await getItem(`history-${cls.id}`);
+              if (h) historyByClass[cls.id] = h;
+            }
+            const backup = {
+              type: 'class-group-generator-backup',
+              version: 1,
+              exportedAt: Date.now(),
+              classes,
+              nextColorIndex,
+              history: historyByClass
+            };
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const dateStr = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `class-group-generator-backup-${dateStr}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showNotification('Backup downloaded!');
+          };
+
+          const triggerImport = () => fileInputRef.current?.click();
+
+          const handleImportFile = async (e) => {
+            const file = e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+
+            try {
+              const text = await file.text();
+              const backup = JSON.parse(text);
+              if (!backup || !Array.isArray(backup.classes)) {
+                throw new Error('This file doesn\'t look like a Class Group Generator backup.');
+              }
+
+              const when = backup.exportedAt ? new Date(backup.exportedAt).toLocaleString() : 'an unknown time';
+              const confirmed = window.confirm(
+                `Restore backup from ${when}?\n\nThis will REPLACE all classes and students currently in this browser with what's in the backup file.`
+              );
+              if (!confirmed) return;
+
+              await setItem('classes', backup.classes);
+              await setItem('nextColorIndex', backup.nextColorIndex || 0);
+              if (backup.history) {
+                for (const classId of Object.keys(backup.history)) {
+                  await setItem(`history-${classId}`, backup.history[classId]);
+                }
+              }
+
+              window.location.reload();
+            } catch (err) {
+              alert(`Could not restore that backup: ${err.message}`);
+            }
+          };
+
           return (
             <div className={`min-h-screen ${darkMode ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white' : 'bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 text-slate-900'} transition-colors duration-300`}>
               <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -675,6 +737,27 @@
                     >
                       {showHistory ? 'Hide' : 'Show'} History
                     </button>
+                    <button
+                      onClick={exportBackup}
+                      title="Download all your classes and students as a backup file"
+                      className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      ⬇ Backup
+                    </button>
+                    <button
+                      onClick={triggerImport}
+                      title="Restore classes and students from a backup file"
+                      className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      ⬆ Restore
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/json"
+                      onChange={handleImportFile}
+                      style={{ display: 'none' }}
+                    />
                     <button
                       onClick={() => setDarkMode(!darkMode)}
                       className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
