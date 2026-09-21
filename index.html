@@ -676,12 +676,34 @@
               nextColorIndex,
               history: historyByClass
             };
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const json = JSON.stringify(backup, null, 2);
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const filename = `class-group-generator-backup-${dateStr}.json`;
+
+            // Chrome/Edge: let the user pick where to save via a native Save As dialog
+            if (window.showSaveFilePicker) {
+              try {
+                const handle = await window.showSaveFilePicker({
+                  suggestedName: filename,
+                  types: [{ description: 'JSON backup', accept: { 'application/json': ['.json'] } }]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(json);
+                await writable.close();
+                showNotification('Backup saved!');
+                return;
+              } catch (err) {
+                if (err.name === 'AbortError') return; // user cancelled the save dialog
+                // otherwise fall through to the plain-download fallback below
+              }
+            }
+
+            // Fallback for browsers without the Save As API (e.g. Safari, Firefox)
+            const blob = new Blob([json], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            const dateStr = new Date().toISOString().slice(0, 10);
             a.href = url;
-            a.download = `class-group-generator-backup-${dateStr}.json`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
